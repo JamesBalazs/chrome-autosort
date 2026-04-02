@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Tab AutoSort",
+  "version": "1.0",
+  "description": "Automatically sorts tabs by title and groups them by configurable keywords.",
+  "permissions": ["tabs", "tabGroups", "storage", "alarms"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Tab AutoSort Settings"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
