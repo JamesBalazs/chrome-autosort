@@ -36,7 +36,9 @@ async function sortAndGroupTabs() {
 }
 
 async function sortAndGroupWindow(windowId, keywords) {
-  const tabs = await chrome.tabs.query({ windowId });
+  const allTabs = await chrome.tabs.query({ windowId });
+  const pinnedCount = allTabs.filter((t) => t.pinned).length;
+  const tabs = allTabs.filter((t) => !t.pinned);
 
   // --- 1. Assign each tab to a keyword bucket (or "ungrouped") ---
   // keyword → [tab, …]  (first matching keyword wins)
@@ -80,9 +82,25 @@ async function sortAndGroupWindow(windowId, keywords) {
   // Sort the keyword buckets themselves alphabetically by keyword
   const sortedKeys = [...buckets.keys()].sort((a, b) => a.localeCompare(b));
 
-  // --- 3. Ungroup only tabs in extension-managed groups ---
+  // --- 3. Ungroup tabs in extension-managed groups ---
+  // Use stored IDs + title matching as fallback (covers service worker restarts)
   const { managedGroupIds = [] } = await chrome.storage.session.get("managedGroupIds");
   const managedSet = new Set(managedGroupIds);
+
+  const existingGroups = await chrome.tabGroups.query({ windowId });
+  for (const group of existingGroups) {
+    if (managedSet.has(group.id)) continue;
+    for (const pattern of keywords) {
+      try {
+        const re = new RegExp(pattern, "i");
+        const m = group.title.match(re);
+        if (m && m[0].toLowerCase() === group.title.toLowerCase()) {
+          managedSet.add(group.id);
+          break;
+        }
+      } catch {}
+    }
+  }
 
   for (const tab of tabs) {
     if (tab.groupId !== -1 && managedSet.has(tab.groupId)) {
@@ -94,7 +112,7 @@ async function sortAndGroupWindow(windowId, keywords) {
     }
   }
 
-  // --- 4. Move tabs into the desired order ---
+  // --- 4. Move tabs into desired order (all keyword tabs are now ungrouped) ---
   const desiredOrder = [];
   for (const key of sortedKeys) {
     desiredOrder.push(...buckets.get(key).tabs);
@@ -102,7 +120,7 @@ async function sortAndGroupWindow(windowId, keywords) {
   desiredOrder.push(...ungrouped);
 
   for (let i = 0; i < desiredOrder.length; i++) {
-    await chrome.tabs.move(desiredOrder[i].id, { index: i });
+    await chrome.tabs.move(desiredOrder[i].id, { index: pinnedCount + i });
   }
 
   // --- 5. Group keyword tabs (already adjacent from step 4) ---
