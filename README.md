@@ -2,6 +2,8 @@
 
 A Chrome extension that automatically groups tabs based on configurable regex.
 
+![tabs-example.png](img/tabs-example.png)
+
 Set up a regex eg ID-\d+ and matched tabs will be grouped like:
 - ID-1234
   - ID-1234 my Jira example
