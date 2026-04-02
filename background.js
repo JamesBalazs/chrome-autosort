@@ -80,50 +80,12 @@ async function sortAndGroupWindow(windowId, keywords) {
   // Sort the keyword buckets themselves alphabetically by keyword
   const sortedKeys = [...buckets.keys()].sort((a, b) => a.localeCompare(b));
 
-  // --- 3. Build the desired tab order: keyword groups first, then ungrouped ---
-  const desiredOrder = [];
-  for (const key of sortedKeys) {
-    desiredOrder.push(...buckets.get(key).tabs);
-  }
-  desiredOrder.push(...ungrouped);
+  // --- 3. Ungroup only tabs in extension-managed groups ---
+  const { managedGroupIds = [] } = await chrome.storage.session.get("managedGroupIds");
+  const managedSet = new Set(managedGroupIds);
 
-  // --- 4. Move tabs into the desired order ---
-  for (let i = 0; i < desiredOrder.length; i++) {
-    const tab = desiredOrder[i];
-    if (tab.index !== i) {
-      await chrome.tabs.move(tab.id, { index: i });
-    }
-  }
-
-  // --- 5. Create / update tab groups for each keyword ---
-  // Track which group IDs we've assigned so we can ungroup the rest
-  const usedGroupIds = new Set();
-
-  // Re-query tabs to get updated indices after moves
-  const refreshedTabs = await chrome.tabs.query({ windowId });
-  const tabIdToRefreshed = new Map(refreshedTabs.map((t) => [t.id, t]));
-
-  for (const key of sortedKeys) {
-    const bucket = buckets.get(key);
-    const tabIds = bucket.tabs.map((t) => t.id);
-    if (tabIds.length === 0) continue;
-
-    // Group these tabs together
-    const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId } });
-    usedGroupIds.add(groupId);
-
-    // Set group title and a consistent colour
-    await chrome.tabGroups.update(groupId, {
-      title: bucket.display,
-      color: pickColor(key),
-      collapsed: false,
-    });
-  }
-
-  // --- 6. Ungroup tabs that don't belong to any keyword group ---
-  for (const tab of ungrouped) {
-    const fresh = tabIdToRefreshed.get(tab.id);
-    if (fresh && fresh.groupId !== -1 && !usedGroupIds.has(fresh.groupId)) {
+  for (const tab of tabs) {
+    if (tab.groupId !== -1 && managedSet.has(tab.groupId)) {
       try {
         await chrome.tabs.ungroup(tab.id);
       } catch {
@@ -131,6 +93,37 @@ async function sortAndGroupWindow(windowId, keywords) {
       }
     }
   }
+
+  // --- 4. Move tabs into the desired order ---
+  const desiredOrder = [];
+  for (const key of sortedKeys) {
+    desiredOrder.push(...buckets.get(key).tabs);
+  }
+  desiredOrder.push(...ungrouped);
+
+  for (let i = 0; i < desiredOrder.length; i++) {
+    await chrome.tabs.move(desiredOrder[i].id, { index: i });
+  }
+
+  // --- 5. Group keyword tabs (already adjacent from step 4) ---
+  const newManagedGroupIds = [];
+
+  for (const key of sortedKeys) {
+    const bucket = buckets.get(key);
+    const tabIds = bucket.tabs.map((t) => t.id);
+    if (tabIds.length === 0) continue;
+
+    const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId } });
+    newManagedGroupIds.push(groupId);
+
+    await chrome.tabGroups.update(groupId, {
+      title: bucket.display,
+      color: pickColor(key),
+      collapsed: false,
+    });
+  }
+
+  await chrome.storage.session.set({ managedGroupIds: newManagedGroupIds });
 }
 
 // Deterministic colour assignment based on keyword
